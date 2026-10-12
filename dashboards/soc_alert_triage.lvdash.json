@@ -1,0 +1,1158 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpis",
+      "displayName": "KPIs",
+      "queryLines": [
+        "SELECT COUNT(*) AS total_alerts, ",
+        "  SUM(CASE WHEN e.risk_tier = 'critical' THEN 1 ELSE 0 END) AS critical_alerts, ",
+        "  SUM(CASE WHEN e.is_true_positive THEN 1 ELSE 0 END) AS real_threats, ",
+        "  ROUND(AVG(CASE WHEN e.is_true_positive THEN CASE WHEN p.ml_predicted_severity IN ('critical','high') THEN 1.0 ELSE 0.0 END END) * 100, 1) AS pct_threats_prioritized, ",
+        "  ROUND(AVG(CASE WHEN p.ml_predicted_severity IN ('informational','low') THEN 1.0 ELSE 0.0 END) * 100, 1) AS pct_deprioritizable, ",
+        "  (SELECT ROUND(AVG(time_to_triage_seconds) / 60, 1) FROM rajarora_febar.soc_alert_triage.analyst_actions) AS avg_triage_minutes ",
+        "FROM rajarora_febar.soc_alert_triage.gold_enriched_alerts e JOIN rajarora_febar.soc_alert_triage.gold_alert_predictions p ON e.event_id = p.event_id "
+      ]
+    },
+    {
+      "name": "ds_daily",
+      "displayName": "Daily alerts",
+      "queryLines": [
+        "SELECT e.event_date, e.source_type, e.risk_tier, p.ml_predicted_severity, ",
+        "  COUNT(*) AS alerts, ",
+        "  SUM(CASE WHEN e.threat_intel_match THEN 1 ELSE 0 END) AS threat_intel_matches, ",
+        "  SUM(CASE WHEN e.is_true_positive THEN 1 ELSE 0 END) AS real_threats, ",
+        "  SUM(CASE WHEN e.is_true_positive AND p.ml_predicted_severity IN ('critical','high') THEN 1 ELSE 0 END) AS real_threats_prioritized ",
+        "FROM rajarora_febar.soc_alert_triage.gold_enriched_alerts e JOIN rajarora_febar.soc_alert_triage.gold_alert_predictions p ON e.event_id = p.event_id ",
+        "GROUP BY e.event_date, e.source_type, e.risk_tier, p.ml_predicted_severity "
+      ]
+    },
+    {
+      "name": "ds_customers",
+      "displayName": "Customers",
+      "queryLines": [
+        "SELECT customer_id, customer_name, industry, tier, ",
+        "  COUNT(*) AS alerts, ",
+        "  SUM(CASE WHEN risk_tier = 'critical' THEN 1 ELSE 0 END) AS critical_alerts, ",
+        "  SUM(CASE WHEN risk_tier IN ('critical','high') THEN 1 ELSE 0 END) AS high_risk_alerts, ",
+        "  SUM(CASE WHEN threat_intel_match THEN 1 ELSE 0 END) AS threat_intel_matches, ",
+        "  ROUND(AVG(composite_risk_score), 2) AS avg_risk_score ",
+        "FROM rajarora_febar.soc_alert_triage.gold_enriched_alerts ",
+        "GROUP BY customer_id, customer_name, industry, tier "
+      ]
+    },
+    {
+      "name": "ds_top_customers",
+      "displayName": "Top 10 customers",
+      "queryLines": [
+        "SELECT customer_name, COUNT(*) AS critical_alerts ",
+        "FROM rajarora_febar.soc_alert_triage.gold_enriched_alerts WHERE risk_tier = 'critical' ",
+        "GROUP BY customer_id, customer_name ORDER BY critical_alerts DESC LIMIT 10 "
+      ]
+    },
+    {
+      "name": "ds_mitre",
+      "displayName": "MITRE tactics (EDR)",
+      "queryLines": [
+        "SELECT mitre_tactic, risk_tier, COUNT(*) AS alerts ",
+        "FROM rajarora_febar.soc_alert_triage.gold_enriched_alerts WHERE source_type = 'edr' AND mitre_tactic IS NOT NULL ",
+        "GROUP BY mitre_tactic, risk_tier "
+      ]
+    },
+    {
+      "name": "ds_fp_by_source",
+      "displayName": "FP rate by source",
+      "queryLines": [
+        "SELECT source_type, ",
+        "  COUNT(*) AS triaged_alerts, ",
+        "  ROUND(AVG(CASE WHEN triage_outcome IN ('false_positive','benign') THEN 1.0 ELSE 0.0 END) * 100, 1) AS fp_rate_pct ",
+        "FROM rajarora_febar.soc_alert_triage.historical_triage_decisions GROUP BY source_type "
+      ]
+    },
+    {
+      "name": "ds_analysts",
+      "displayName": "Analyst performance",
+      "queryLines": [
+        "SELECT analyst_id, ",
+        "  COUNT(*) AS actions, ",
+        "  ROUND(AVG(time_to_triage_seconds) / 60, 1) AS avg_triage_minutes, ",
+        "  ROUND(PERCENTILE(time_to_triage_seconds, 0.95) / 60, 1) AS p95_triage_minutes, ",
+        "  SUM(CASE WHEN action_type = 'escalate' THEN 1 ELSE 0 END) AS escalations, ",
+        "  SUM(CASE WHEN action_type = 'false_positive' THEN 1 ELSE 0 END) AS false_positives ",
+        "FROM rajarora_febar.soc_alert_triage.analyst_actions GROUP BY analyst_id "
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "overview",
+      "displayName": "Overview",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## \ud83d\udee1\ufe0f SOC Alert Triage \u2014 Manager Overview"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "subtitle",
+            "multilineTextboxSpec": {
+              "lines": [
+                "500K synthetic MDR alerts (Sep 2026) \u00b7 Lakeflow \u2192 Unity Catalog \u2192 XGBoost severity model \u2192 AI summaries \u2192 Lakebase app. Ground truth: *is_true_positive*."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_total",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "total_alerts",
+                      "expression": "`total_alerts`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_alerts",
+                  "displayName": "Total alerts"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total alerts"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_critical",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "critical_alerts",
+                      "expression": "`critical_alerts`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "critical_alerts",
+                  "displayName": "Critical alerts (risk tier)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Critical alerts (risk tier)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_prioritized",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "pct_threats_prioritized",
+                      "expression": "`pct_threats_prioritized`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "pct_threats_prioritized",
+                  "displayName": "% of real threats ML ranked critical/high"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "% of real threats ML ranked critical/high"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_real",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "real_threats",
+                      "expression": "`real_threats`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "real_threats",
+                  "displayName": "Real threats (ground truth)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Real threats (ground truth)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_deprior",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "pct_deprioritizable",
+                      "expression": "`pct_deprioritizable`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "pct_deprioritizable",
+                  "displayName": "% of alerts ML ranks low/informational"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "% of alerts ML ranks low/informational"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 5,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_mttr",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "avg_triage_minutes",
+                      "expression": "`avg_triage_minutes`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg_triage_minutes",
+                  "displayName": "Avg analyst triage time (min)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Avg analyst triage time (min)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 5,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "trend_daily",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "daily(event_date)",
+                      "expression": "DATE_TRUNC(\"DAY\", `event_date`)"
+                    },
+                    {
+                      "name": "risk_tier",
+                      "expression": "`risk_tier`"
+                    },
+                    {
+                      "name": "sum(alerts)",
+                      "expression": "SUM(`alerts`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "daily(event_date)",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Date"
+                },
+                "y": {
+                  "fieldName": "sum(alerts)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Alerts"
+                },
+                "color": {
+                  "fieldName": "risk_tier",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "critical",
+                        "color": "#FF3621"
+                      },
+                      {
+                        "value": "high",
+                        "color": "#FFAB00"
+                      },
+                      {
+                        "value": "medium",
+                        "color": "#8BCAE7"
+                      },
+                      {
+                        "value": "low",
+                        "color": "#99DDB4"
+                      }
+                    ]
+                  },
+                  "displayName": "Risk tier"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Daily alerts by risk tier"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "ml_vs_tier",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "ml_predicted_severity",
+                      "expression": "`ml_predicted_severity`"
+                    },
+                    {
+                      "name": "risk_tier",
+                      "expression": "`risk_tier`"
+                    },
+                    {
+                      "name": "sum(alerts)",
+                      "expression": "SUM(`alerts`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "ml_predicted_severity",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "ML predicted severity"
+                },
+                "y": {
+                  "fieldName": "sum(alerts)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Alerts"
+                },
+                "color": {
+                  "fieldName": "risk_tier",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "critical",
+                        "color": "#FF3621"
+                      },
+                      {
+                        "value": "high",
+                        "color": "#FFAB00"
+                      },
+                      {
+                        "value": "medium",
+                        "color": "#8BCAE7"
+                      },
+                      {
+                        "value": "low",
+                        "color": "#99DDB4"
+                      }
+                    ]
+                  },
+                  "displayName": "Rule-based risk tier"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ML predicted severity vs rule-based risk tier"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "threats_by_source",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "source_type",
+                      "expression": "`source_type`"
+                    },
+                    {
+                      "name": "sum(real_threats)",
+                      "expression": "SUM(`real_threats`)"
+                    },
+                    {
+                      "name": "sum(real_threats_prioritized)",
+                      "expression": "SUM(`real_threats_prioritized`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "source_type",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "Detection source"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "sum(real_threats)",
+                      "displayName": "Real threats"
+                    },
+                    {
+                      "fieldName": "sum(real_threats_prioritized)",
+                      "displayName": "Prioritized by ML (critical/high)"
+                    }
+                  ]
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Real threats vs ML-prioritized, by source"
+              },
+              "mark": {
+                "layout": "group",
+                "colors": [
+                  "#919191",
+                  "#00A972"
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 13,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "top_customers",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_top_customers",
+                  "fields": [
+                    {
+                      "name": "customer_name",
+                      "expression": "`customer_name`"
+                    },
+                    {
+                      "name": "sum(critical_alerts)",
+                      "expression": "SUM(`critical_alerts`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "customer_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "Customer"
+                },
+                "y": {
+                  "fieldName": "sum(critical_alerts)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Critical alerts"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top 10 customers by critical alerts"
+              },
+              "mark": {
+                "colors": [
+                  "#FF3621"
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 19,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "mitre",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_mitre",
+                  "fields": [
+                    {
+                      "name": "mitre_tactic",
+                      "expression": "`mitre_tactic`"
+                    },
+                    {
+                      "name": "risk_tier",
+                      "expression": "`risk_tier`"
+                    },
+                    {
+                      "name": "sum(alerts)",
+                      "expression": "SUM(`alerts`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "mitre_tactic",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "MITRE ATT&CK tactic"
+                },
+                "y": {
+                  "fieldName": "sum(alerts)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "EDR alerts"
+                },
+                "color": {
+                  "fieldName": "risk_tier",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "critical",
+                        "color": "#FF3621"
+                      },
+                      {
+                        "value": "high",
+                        "color": "#FFAB00"
+                      },
+                      {
+                        "value": "medium",
+                        "color": "#8BCAE7"
+                      },
+                      {
+                        "value": "low",
+                        "color": "#99DDB4"
+                      }
+                    ]
+                  },
+                  "displayName": "Risk tier"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "EDR alerts by MITRE tactic"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 19,
+            "width": 3,
+            "height": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "details",
+      "displayName": "Customers & Analysts",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "title2",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## \ud83d\udc65 Customers, Analysts & Detection Quality"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "customers_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_customers",
+                  "fields": [
+                    {
+                      "name": "customer_name",
+                      "expression": "`customer_name`"
+                    },
+                    {
+                      "name": "customer_id",
+                      "expression": "`customer_id`"
+                    },
+                    {
+                      "name": "industry",
+                      "expression": "`industry`"
+                    },
+                    {
+                      "name": "tier",
+                      "expression": "`tier`"
+                    },
+                    {
+                      "name": "alerts",
+                      "expression": "`alerts`"
+                    },
+                    {
+                      "name": "critical_alerts",
+                      "expression": "`critical_alerts`"
+                    },
+                    {
+                      "name": "high_risk_alerts",
+                      "expression": "`high_risk_alerts`"
+                    },
+                    {
+                      "name": "threat_intel_matches",
+                      "expression": "`threat_intel_matches`"
+                    },
+                    {
+                      "name": "avg_risk_score",
+                      "expression": "`avg_risk_score`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "customer_name",
+                    "displayName": "Customer"
+                  },
+                  {
+                    "fieldName": "customer_id",
+                    "displayName": "ID"
+                  },
+                  {
+                    "fieldName": "industry",
+                    "displayName": "Industry"
+                  },
+                  {
+                    "fieldName": "tier",
+                    "displayName": "Tier"
+                  },
+                  {
+                    "fieldName": "alerts",
+                    "displayName": "Alerts"
+                  },
+                  {
+                    "fieldName": "critical_alerts",
+                    "displayName": "Critical"
+                  },
+                  {
+                    "fieldName": "high_risk_alerts",
+                    "displayName": "Critical + high"
+                  },
+                  {
+                    "fieldName": "threat_intel_matches",
+                    "displayName": "Threat-intel hits"
+                  },
+                  {
+                    "fieldName": "avg_risk_score",
+                    "displayName": "Avg risk"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Customer risk overview"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "analysts_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_analysts",
+                  "fields": [
+                    {
+                      "name": "analyst_id",
+                      "expression": "`analyst_id`"
+                    },
+                    {
+                      "name": "actions",
+                      "expression": "`actions`"
+                    },
+                    {
+                      "name": "avg_triage_minutes",
+                      "expression": "`avg_triage_minutes`"
+                    },
+                    {
+                      "name": "p95_triage_minutes",
+                      "expression": "`p95_triage_minutes`"
+                    },
+                    {
+                      "name": "escalations",
+                      "expression": "`escalations`"
+                    },
+                    {
+                      "name": "false_positives",
+                      "expression": "`false_positives`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "analyst_id",
+                    "displayName": "Analyst"
+                  },
+                  {
+                    "fieldName": "actions",
+                    "displayName": "Actions"
+                  },
+                  {
+                    "fieldName": "avg_triage_minutes",
+                    "displayName": "Avg min"
+                  },
+                  {
+                    "fieldName": "p95_triage_minutes",
+                    "displayName": "P95 min"
+                  },
+                  {
+                    "fieldName": "escalations",
+                    "displayName": "Escalations"
+                  },
+                  {
+                    "fieldName": "false_positives",
+                    "displayName": "False positives"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Analyst performance (from app triage actions)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "fp_rate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_fp_by_source",
+                  "fields": [
+                    {
+                      "name": "source_type",
+                      "expression": "`source_type`"
+                    },
+                    {
+                      "name": "sum(fp_rate_pct)",
+                      "expression": "SUM(`fp_rate_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "source_type",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "Detection source"
+                },
+                "y": {
+                  "fieldName": "sum(fp_rate_pct)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "FP / benign rate (%)"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Historical false-positive rate by source (%)"
+              },
+              "mark": {
+                "colors": [
+                  "#FFAB00"
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 8,
+            "width": 3,
+            "height": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "filters",
+      "displayName": "Filters",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layout": [
+        {
+          "widget": {
+            "name": "filter_source",
+            "queries": [
+              {
+                "name": "q_daily_source",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "source_type",
+                      "expression": "`source_type`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_fp_source",
+                "query": {
+                  "datasetName": "ds_fp_by_source",
+                  "fields": [
+                    {
+                      "name": "source_type",
+                      "expression": "`source_type`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "source_type",
+                    "displayName": "Detection source",
+                    "queryName": "q_daily_source"
+                  },
+                  {
+                    "fieldName": "source_type",
+                    "displayName": "Detection source",
+                    "queryName": "q_fp_source"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Detection source"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "filter_date",
+            "queries": [
+              {
+                "name": "q_daily_date",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "event_date",
+                      "expression": "`event_date`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "event_date",
+                    "displayName": "Event date",
+                    "queryName": "q_daily_date"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Event date"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}

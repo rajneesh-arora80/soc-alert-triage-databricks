@@ -1,0 +1,17 @@
+command:
+  - "streamlit"
+  - "run"
+  - "app.py"
+
+# No tokens here. Databricks Apps injects DATABRICKS_HOST, DATABRICKS_CLIENT_ID and
+# DATABRICKS_CLIENT_SECRET for the app's service principal automatically.
+# valueFrom must reference an app *resource key* (added under Edit app -> Resources).
+env:
+  - name: "DATABRICKS_WAREHOUSE_ID"
+    valueFrom: "sql-warehouse"
+  - name: "LAKEBASE_ENDPOINT"
+    value: "projects/soc-triage/branches/production/endpoints/primary"
+  - name: "SOC_CATALOG"
+    value: "rajarora_febar"
+  - name: "SOC_SCHEMA"
+    value: "soc_alert_triage"

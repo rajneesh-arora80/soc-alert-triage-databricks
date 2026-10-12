@@ -1,0 +1,103 @@
+{
+  "name": "soc-triage-pipeline",
+  "description": "Lakeflow Job: Auto Loader ingestion of landed telemetry files -> silver/gold -> governance -> ML scoring -> GenAI summaries -> Lakebase sync. Triggered when new files arrive in the landing volume.",
+  "max_concurrent_runs": 1,
+  "queue": {
+    "enabled": true
+  },
+  "trigger": {
+    "pause_status": "PAUSED",
+    "file_arrival": {
+      "url": "/Volumes/rajarora_febar/soc_alert_triage/landing/security_events/",
+      "min_time_between_triggers_seconds": 300,
+      "wait_after_last_change_seconds": 120
+    }
+  },
+  "tasks": [
+    {
+      "task_key": "ingest_autoloader",
+      "description": "Auto Loader: landing JSON files -> bronze raw_security_events",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Users/rajneesh.arora@databricks.com/company_soc_triage/02a_autoloader_ingest"
+      },
+      "max_retries": 1,
+      "min_retry_interval_millis": 60000,
+      "retry_on_timeout": false
+    },
+    {
+      "task_key": "transform_silver_gold",
+      "description": "Parse/normalize (silver) and enrich/score (gold)",
+      "depends_on": [
+        {
+          "task_key": "ingest_autoloader"
+        }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/Users/rajneesh.arora@databricks.com/company_soc_triage/02b_silver_gold_transform"
+      },
+      "max_retries": 1,
+      "min_retry_interval_millis": 60000,
+      "retry_on_timeout": false
+    },
+    {
+      "task_key": "governance",
+      "description": "Unity Catalog comments, tags, analyst assignments and row filter",
+      "depends_on": [
+        {
+          "task_key": "transform_silver_gold"
+        }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/Users/rajneesh.arora@databricks.com/company_soc_triage/03_governance"
+      },
+      "max_retries": 1,
+      "min_retry_interval_millis": 60000,
+      "retry_on_timeout": false
+    },
+    {
+      "task_key": "ml_scoring",
+      "description": "Train/register XGBoost severity classifier and score all gold alerts",
+      "depends_on": [
+        {
+          "task_key": "governance"
+        }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/Users/rajneesh.arora@databricks.com/company_soc_triage/04_ml_classifier"
+      },
+      "max_retries": 1,
+      "min_retry_interval_millis": 60000,
+      "retry_on_timeout": false
+    },
+    {
+      "task_key": "genai_summaries",
+      "description": "ai_query() investigation summaries for top critical/high alerts",
+      "depends_on": [
+        {
+          "task_key": "ml_scoring"
+        }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/Users/rajneesh.arora@databricks.com/company_soc_triage/05_genai_summaries"
+      },
+      "max_retries": 1,
+      "min_retry_interval_millis": 60000,
+      "retry_on_timeout": false
+    },
+    {
+      "task_key": "lakebase_sync",
+      "description": "Refresh alert queue synced to Lakebase; merge app triage actions back to Delta",
+      "depends_on": [
+        {
+          "task_key": "genai_summaries"
+        }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/Users/rajneesh.arora@databricks.com/company_soc_triage/06_lakebase"
+      },
+      "max_retries": 1,
+      "min_retry_interval_millis": 60000,
+      "retry_on_timeout": false
+    }
+  ]
+}

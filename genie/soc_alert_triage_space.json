@@ -1,0 +1,331 @@
+{
+  "space_id": "01f1c10367b81930a4413866595bf726",
+  "title": "SOC Alert Triage",
+  "description": "Ask questions in plain English about security alerts, ML triage predictions, AI investigation summaries, analyst performance and false-positive rates across MDR customers (synthetic data, Sep 2026).",
+  "warehouse_id": "4d120045d1ac198c",
+  "serialized_space": {
+    "version": 2,
+    "config": {
+      "sample_questions": [
+        {
+          "id": "4b0999d9e53848b9942cc7c3bd9eec1a",
+          "question": [
+            "Show the daily alert trend for critical and high alerts"
+          ]
+        },
+        {
+          "id": "a54cb82e69f945db9e3d22f6db9d83ce",
+          "question": [
+            "What share of real threats did the model prioritize?"
+          ]
+        },
+        {
+          "id": "ad0c001e17b54154b322be8feac9cd6d",
+          "question": [
+            "What is our false positive rate by detection source?"
+          ]
+        },
+        {
+          "id": "b8a79c2bf2744b93838dceb9ebfe474e",
+          "question": [
+            "Which customers have the most critical alerts?"
+          ]
+        },
+        {
+          "id": "e630a15ab9a34ba48648c870cf70f4b5",
+          "question": [
+            "How much analyst workload can the ML model remove?"
+          ]
+        }
+      ]
+    },
+    "data_sources": {
+      "tables": [
+        {
+          "identifier": "rajarora_febar.soc_alert_triage.analyst_actions"
+        },
+        {
+          "identifier": "rajarora_febar.soc_alert_triage.customers"
+        },
+        {
+          "identifier": "rajarora_febar.soc_alert_triage.gold_alert_predictions"
+        },
+        {
+          "identifier": "rajarora_febar.soc_alert_triage.gold_enriched_alerts",
+          "column_configs": [
+            {
+              "column_name": "composite_risk_score",
+              "description": [
+                "Weighted 0-10 risk score from severity, threat intel, asset criticality and off-hours activity."
+              ],
+              "enable_format_assistance": true
+            },
+            {
+              "column_name": "customer_name",
+              "enable_format_assistance": true,
+              "enable_entity_matching": true
+            },
+            {
+              "column_name": "is_true_positive",
+              "description": [
+                "Ground-truth label: TRUE if the alert was a real threat."
+              ],
+              "synonyms": [
+                "real threat",
+                "confirmed threat",
+                "true positive"
+              ],
+              "enable_format_assistance": true
+            },
+            {
+              "column_name": "mitre_tactic",
+              "synonyms": [
+                "ATT&CK tactic",
+                "MITRE"
+              ],
+              "enable_format_assistance": true,
+              "enable_entity_matching": true
+            },
+            {
+              "column_name": "risk_tier",
+              "synonyms": [
+                "priority",
+                "risk level"
+              ],
+              "enable_format_assistance": true,
+              "enable_entity_matching": true
+            },
+            {
+              "column_name": "source_type",
+              "synonyms": [
+                "detection source",
+                "sensor",
+                "log source"
+              ],
+              "enable_format_assistance": true,
+              "enable_entity_matching": true
+            }
+          ]
+        },
+        {
+          "identifier": "rajarora_febar.soc_alert_triage.gold_investigation_summaries"
+        },
+        {
+          "identifier": "rajarora_febar.soc_alert_triage.historical_triage_decisions"
+        }
+      ]
+    },
+    "instructions": {
+      "text_instructions": [
+        {
+          "id": "f3eeeaa22a1c4bd28d5eb9557b502011",
+          "content": [
+            "You are a SOC analytics assistant for a Managed Detection & Response (MDR) provider. Audience: SOC managers.\n",
+            "\n",
+            "Data: synthetic security telemetry covering 2026-09-01 to 2026-09-30. Interpret \"this month\", \"recent\" or \"last 30 days\" as that window (use MAX(event_date) as \"today\"), not the current calendar date.\n",
+            "\n",
+            "Tables and joins:\n",
+            "- gold_enriched_alerts: one row per alert (event_id). Main table. Has customer_name, industry, tier, source_type, risk_tier, composite_risk_score, threat_intel_match, mitre_tactic, asset criticality, and is_true_positive (ground-truth label: the alert was a real threat).\n",
+            "- gold_alert_predictions: ML-predicted severity (ml_predicted_severity, ml_confidence). Join on event_id.\n",
+            "- gold_investigation_summaries: AI-generated investigation summaries for top critical/high alerts. Join on event_id.\n",
+            "- analyst_actions: analyst triage decisions (action_type, severity_override, notes, time_to_triage_seconds). Join to alerts on event_id.\n",
+            "- historical_triage_decisions: past analyst decisions used to train the model (triage_outcome, analyst_severity).\n",
+            "- customers: customer metadata. Join on customer_id.\n",
+            "\n",
+            "Terminology:\n",
+            "- Risk tier: critical > high > medium > low, from composite_risk_score (0-10; 7+ is critical).\n",
+            "- ML severity: critical > high > medium > low > informational. \"Can be deprioritized/auto-suppressed\" = ml_predicted_severity = 'informational' (high confidence = ml_confidence >= 0.8).\n",
+            "- FP rate: share of historical_triage_decisions with triage_outcome IN ('false_positive','benign').\n",
+            "- MTTR / triage time: AVG(time_to_triage_seconds) from analyst_actions; also show P95 (PERCENTILE) and express in minutes.\n",
+            "- Threat intel match: the source IP matched a known-bad indicator of compromise.\n",
+            "\n",
+            "Answer style: for customer-level answers always GROUP BY customer_id and customer_name together (customer_id is the unique key) and show customer_name; group trends by event_date; round percentages to 1 decimal; state any filters you applied."
+          ]
+        }
+      ],
+      "example_question_sqls": [
+        {
+          "id": "4e17e3b91a68431d837c4bdc78fc93e1",
+          "question": [
+            "What is our historical false positive rate by detection source?"
+          ],
+          "sql": [
+            "SELECT source_type,\n",
+            "       COUNT(*) AS triaged_alerts,\n",
+            "       ROUND(AVG(CASE WHEN triage_outcome IN ('false_positive', 'benign') THEN 1 ELSE 0 END) * 100, 1) AS fp_or_benign_pct,\n",
+            "       ROUND(AVG(CASE WHEN triage_outcome = 'true_positive' THEN 1 ELSE 0 END) * 100, 1) AS true_positive_pct\n",
+            "FROM rajarora_febar.soc_alert_triage.historical_triage_decisions\n",
+            "GROUP BY source_type\n",
+            "ORDER BY fp_or_benign_pct DESC"
+          ],
+          "usage_guidance": [
+            "FP rate counts false_positive and benign outcomes."
+          ]
+        },
+        {
+          "id": "6a63039da90444359fbbdaa145784d18",
+          "question": [
+            "Show the daily alert trend"
+          ],
+          "sql": [
+            "SELECT event_date,\n",
+            "       COUNT(*) AS alerts,\n",
+            "       SUM(CASE WHEN risk_tier = 'critical' THEN 1 ELSE 0 END) AS critical,\n",
+            "       SUM(CASE WHEN risk_tier = 'high' THEN 1 ELSE 0 END) AS high\n",
+            "FROM rajarora_febar.soc_alert_triage.gold_enriched_alerts\n",
+            "GROUP BY event_date\n",
+            "ORDER BY event_date"
+          ],
+          "usage_guidance": [
+            "Trends are grouped by event_date."
+          ]
+        },
+        {
+          "id": "787194a7052d4017a7d8448c8847d970",
+          "question": [
+            "How are our analysts performing on triage time?"
+          ],
+          "sql": [
+            "SELECT analyst_id,\n",
+            "       COUNT(*) AS actions,\n",
+            "       ROUND(AVG(time_to_triage_seconds) / 60, 1) AS avg_triage_minutes,\n",
+            "       ROUND(PERCENTILE(time_to_triage_seconds, 0.95) / 60, 1) AS p95_triage_minutes,\n",
+            "       SUM(CASE WHEN action_type = 'escalate' THEN 1 ELSE 0 END) AS escalations,\n",
+            "       SUM(CASE WHEN action_type = 'false_positive' THEN 1 ELSE 0 END) AS false_positives\n",
+            "FROM rajarora_febar.soc_alert_triage.analyst_actions\n",
+            "GROUP BY analyst_id\n",
+            "ORDER BY avg_triage_minutes"
+          ],
+          "usage_guidance": [
+            "MTTR-style analyst metrics; show average and P95."
+          ]
+        },
+        {
+          "id": "909d2636f1474109973d80f354b32fe1",
+          "question": [
+            "How much analyst workload can the ML model remove?"
+          ],
+          "sql": [
+            "SELECT p.ml_predicted_severity,\n",
+            "       COUNT(*) AS alerts,\n",
+            "       ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1) AS pct_of_alerts,\n",
+            "       ROUND(AVG(p.ml_confidence), 3) AS avg_confidence\n",
+            "FROM rajarora_febar.soc_alert_triage.gold_enriched_alerts e\n",
+            "JOIN rajarora_febar.soc_alert_triage.gold_alert_predictions p ON e.event_id = p.event_id\n",
+            "GROUP BY p.ml_predicted_severity\n",
+            "ORDER BY alerts DESC"
+          ],
+          "usage_guidance": [
+            "ML predicted severity distribution; informational/low are deprioritization candidates."
+          ]
+        },
+        {
+          "id": "b1877540b6b345428437bb9e297f72b7",
+          "question": [
+            "Which MITRE ATT&CK tactics appear most in high-risk EDR alerts?"
+          ],
+          "sql": [
+            "SELECT mitre_tactic,\n",
+            "       COUNT(*) AS alerts,\n",
+            "       SUM(CASE WHEN risk_tier IN ('critical', 'high') THEN 1 ELSE 0 END) AS high_risk_alerts\n",
+            "FROM rajarora_febar.soc_alert_triage.gold_enriched_alerts\n",
+            "WHERE source_type = 'edr' AND mitre_tactic IS NOT NULL\n",
+            "GROUP BY mitre_tactic\n",
+            "ORDER BY high_risk_alerts DESC"
+          ],
+          "usage_guidance": [
+            "mitre_tactic is populated for EDR alerts."
+          ]
+        },
+        {
+          "id": "e00b5e1ea48d4ff2b84de74facb63dd2",
+          "question": [
+            "Which customers have the most critical alerts?"
+          ],
+          "sql": [
+            "SELECT customer_id, customer_name, industry, tier,\n",
+            "       COUNT(*) AS total_alerts,\n",
+            "       SUM(CASE WHEN risk_tier = 'critical' THEN 1 ELSE 0 END) AS critical_alerts,\n",
+            "       ROUND(AVG(composite_risk_score), 2) AS avg_risk_score\n",
+            "FROM rajarora_febar.soc_alert_triage.gold_enriched_alerts\n",
+            "GROUP BY customer_id, customer_name, industry, tier\n",
+            "ORDER BY critical_alerts DESC\n",
+            "LIMIT 10"
+          ],
+          "usage_guidance": [
+            "Top customers by critical alert count; always include customer_name."
+          ]
+        },
+        {
+          "id": "f06b65f90c2a4df79f532bb5ace5262f",
+          "question": [
+            "How many alerts did we have by risk tier?"
+          ],
+          "sql": [
+            "SELECT risk_tier, COUNT(*) AS alerts,\n",
+            "       SUM(CASE WHEN threat_intel_match THEN 1 ELSE 0 END) AS threat_intel_matches,\n",
+            "       ROUND(AVG(composite_risk_score), 2) AS avg_risk_score\n",
+            "FROM rajarora_febar.soc_alert_triage.gold_enriched_alerts\n",
+            "GROUP BY risk_tier\n",
+            "ORDER BY avg_risk_score DESC"
+          ],
+          "usage_guidance": [
+            "Alert volume summary by risk tier."
+          ]
+        },
+        {
+          "id": "f80e5d9958a8477888d8869ac6949abf",
+          "question": [
+            "What share of confirmed real threats did the model prioritize as critical or high?"
+          ],
+          "sql": [
+            "SELECT e.source_type,\n",
+            "       COUNT(*) AS real_threats,\n",
+            "       SUM(CASE WHEN p.ml_predicted_severity IN ('critical', 'high') THEN 1 ELSE 0 END) AS prioritized,\n",
+            "       ROUND(SUM(CASE WHEN p.ml_predicted_severity IN ('critical', 'high') THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1) AS pct_prioritized\n",
+            "FROM rajarora_febar.soc_alert_triage.gold_enriched_alerts e\n",
+            "JOIN rajarora_febar.soc_alert_triage.gold_alert_predictions p ON e.event_id = p.event_id\n",
+            "WHERE e.is_true_positive\n",
+            "GROUP BY e.source_type\n",
+            "ORDER BY pct_prioritized DESC"
+          ],
+          "usage_guidance": [
+            "is_true_positive is the ground-truth label for an alert."
+          ]
+        }
+      ]
+    },
+    "benchmarks": {
+      "questions": [
+        {
+          "id": "fda2564476714c6fbee6e9c80d452bc2",
+          "question": [
+            "What percentage of true-positive alerts were predicted critical or high by the model?"
+          ],
+          "answer": [
+            {
+              "format": "SQL",
+              "content": [
+                "SELECT ROUND(AVG(CASE WHEN p.ml_predicted_severity IN ('critical','high') THEN 1 ELSE 0 END) * 100, 1) AS pct_prioritized FROM rajarora_febar.soc_alert_triage.gold_enriched_alerts e JOIN rajarora_febar.soc_alert_triage.gold_alert_predictions p ON e.event_id = p.event_id WHERE e.is_true_positive"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "65f6853a27124480b9a7a31d7bc2b6f8",
+          "question": [
+            "How many critical alerts are there in total?"
+          ],
+          "answer": [
+            {
+              "format": "SQL",
+              "content": [
+                "SELECT COUNT(*) AS critical_alerts FROM rajarora_febar.soc_alert_triage.gold_enriched_alerts WHERE risk_tier = 'critical'"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

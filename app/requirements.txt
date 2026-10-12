@@ -1,0 +1,6 @@
+streamlit>=1.37.0
+databricks-sql-connector>=3.4.0
+databricks-sdk>=0.30.0
+pandas>=2.0.0
+pyarrow>=14.0.0
+psycopg[binary]>=3.1
