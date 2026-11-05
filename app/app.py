@@ -122,15 +122,16 @@ QUEUE_COLUMNS = """event_id, event_timestamp, customer_name, source_type, risk_t
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def load_queue(tiers: tuple, sources: tuple, limit: int) -> tuple[pd.DataFrame, float]:
+def load_queue(tiers: tuple, ml_tiers: tuple, sources: tuple, limit: int) -> tuple[pd.DataFrame, float]:
     t0 = time.perf_counter()
     if USE_LAKEBASE:
         df = pg_query(
             f"""SELECT {QUEUE_COLUMNS} FROM app.my_alert_queue
-                WHERE risk_tier = ANY(%(tiers)s) AND source_type = ANY(%(sources)s)
+                WHERE risk_tier = ANY(%(tiers)s) AND ml_predicted_severity = ANY(%(ml_tiers)s)
+                  AND source_type = ANY(%(sources)s)
                 ORDER BY has_ai_summary DESC, composite_risk_score DESC, event_id
                 LIMIT %(limit)s""",
-            {"tiers": list(tiers), "sources": list(sources), "limit": limit},
+            {"tiers": list(tiers), "ml_tiers": list(ml_tiers), "sources": list(sources), "limit": limit},
         )
     else:
         # gold_enriched_alerts carries the UC row filter, so the app SP only sees assigned customers
@@ -141,10 +142,11 @@ def load_queue(tiers: tuple, sources: tuple, limit: int) -> tuple[pd.DataFrame, 
                     JOIN {FQ}.gold_alert_predictions p ON e.event_id = p.event_id
                     LEFT JOIN {FQ}.gold_investigation_summaries s ON e.event_id = s.event_id
                     WHERE e.risk_tier IN ('critical', 'high') OR p.ml_predicted_severity IN ('critical', 'high'))
-                WHERE array_contains(:tiers, risk_tier) AND array_contains(:sources, source_type)
+                WHERE array_contains(:tiers, risk_tier) AND array_contains(:ml_tiers, ml_predicted_severity)
+                  AND array_contains(:sources, source_type)
                 ORDER BY has_ai_summary DESC, composite_risk_score DESC, event_id
                 LIMIT :limit""",
-            {"tiers": list(tiers), "sources": list(sources), "limit": limit},
+            {"tiers": list(tiers), "ml_tiers": list(ml_tiers), "sources": list(sources), "limit": limit},
         )
     return df, (time.perf_counter() - t0) * 1000
 
@@ -200,7 +202,11 @@ if not USE_LAKEBASE:
 
 with st.sidebar:
     st.header("Filters")
-    tiers = st.multiselect("Risk tier", ["critical", "high", "medium", "low"], ["critical", "high"])
+    tiers = st.multiselect("Rule risk tier", ["critical", "high", "medium", "low"], ["critical", "high"],
+                           help="Tier from the composite risk score (rules + threat intel + asset criticality)")
+    # Alerts the model ranks low/informational (and the rules don't flag) are never queued, by design
+    ml_tiers = st.multiselect("ML severity", ["critical", "high", "medium"], ["critical", "high", "medium"],
+                              help="Severity predicted by the ML classifier")
     sources = st.multiselect(
         "Source", ["firewall", "edr", "auth", "email", "cloud_audit"],
         ["firewall", "edr", "auth", "email", "cloud_audit"],
@@ -208,12 +214,12 @@ with st.sidebar:
     limit = st.slider("Queue size", 25, 500, 100, step=25)
     analyst_id = st.text_input("Analyst ID", st.context.headers.get("X-Forwarded-Email", "analyst_1"))
 
-if not tiers or not sources:
-    st.info("Select at least one risk tier and source.")
+if not tiers or not ml_tiers or not sources:
+    st.info("Select at least one rule risk tier, ML severity and source.")
     st.stop()
 
 try:
-    queue, latency_ms = load_queue(tuple(tiers), tuple(sources), limit)
+    queue, latency_ms = load_queue(tuple(tiers), tuple(ml_tiers), tuple(sources), limit)
 except Exception as e:
     st.error(f"Query failed: {e}")
     st.stop()
@@ -247,7 +253,8 @@ with tab_triage:
         list(queue.event_id),
         key="selected_alert",  # stable widget identity so the selection survives reruns
         format_func=lambda eid: (
-            f"{indexed.at[eid, 'risk_tier'].upper()} · {indexed.at[eid, 'composite_risk_score']} · "
+            f"{indexed.at[eid, 'risk_tier'].upper()} · ML {indexed.at[eid, 'ml_predicted_severity']} · "
+            f"{indexed.at[eid, 'composite_risk_score']} · "
             f"{indexed.at[eid, 'customer_name']} · {indexed.at[eid, 'source_type']} · "
             f"{str(indexed.at[eid, 'event_timestamp'])[:16]} · {eid[:8]}"
         ),
