@@ -55,11 +55,21 @@ def get_pg_conn():
 
 
 def pg_query(query: str, params: dict | None = None) -> pd.DataFrame:
-    conn = get_pg_conn()
-    if conn.closed:
-        get_pg_conn.clear()
+    import psycopg
+
+    # Lakebase scales to zero when idle and drops open connections; reconnect once (wakes it up).
+    for attempt in range(2):
         conn = get_pg_conn()
-    cur = conn.execute(query, params or {})
+        if conn.closed:
+            get_pg_conn.clear()
+            conn = get_pg_conn()
+        try:
+            cur = conn.execute(query, params or {})
+            break
+        except psycopg.OperationalError:
+            get_pg_conn.clear()
+            if attempt:
+                raise
     if cur.description is None:  # INSERT/UPDATE etc. return no result set
         return pd.DataFrame()
     return pd.DataFrame(cur.fetchall(), columns=[c.name for c in cur.description])
@@ -82,12 +92,18 @@ def sql_query(query: str, params: dict | None = None) -> pd.DataFrame:
 
 
 @st.cache_resource(ttl=300, show_spinner=False)
+def lakebase_ok() -> bool:
+    """Cached only on success (a failure raises), so the app never stays stuck on the fallback."""
+    pg_query("SELECT 1 FROM app.my_alert_queue LIMIT 1")
+    return True
+
+
 def lakebase_error() -> str | None:
     """None if Lakebase is configured and reachable, otherwise why not."""
     if not LAKEBASE_ENDPOINT:
         return "LAKEBASE_ENDPOINT is not set"
     try:
-        pg_query("SELECT 1 FROM app.my_alert_queue LIMIT 1")
+        lakebase_ok()
         return None
     except Exception as e:  # noqa: BLE001 — any failure means use the fallback
         get_pg_conn.clear()
